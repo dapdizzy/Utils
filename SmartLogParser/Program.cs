@@ -47,10 +47,10 @@ namespace SmartLogParser
             Thread.Sleep(3000);
         }
 
-        private static string ProcessLogFile(string logFileName, ushort tailSizeinKb, string keyWord, int relevantLines)
+        private static string ProcessLogFile(string logFileName, ushort tailSizeInKb, string keyWord, int relevantLines)
         {
             const int bytesInKb = 1024;
-            long offset = tailSizeinKb * bytesInKb;
+            long offset = tailSizeInKb * bytesInKb;
             int linesRead = 0;
             string outputFileName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "Output.txt");
             using (var writer = new StreamWriter(File.Create(outputFileName)))
@@ -61,26 +61,29 @@ namespace SmartLogParser
                     reader.BaseStream.Seek(-offset, SeekOrigin.End);
                 }
                 string line;
-                int lineNum = 0;
-                bool readLine = false;
+                int relevantLineNumber = 0;
+                bool keywordMatch = false;
                 while (!string.IsNullOrEmpty(line = reader.ReadLine()))
                 {
-                    if (!readLine)
+                    if (!keywordMatch)
                     {
-                        readLine = line.ToUpperInvariant().Contains(keyWord.ToUpperInvariant());
-                        if (readLine)
+                        keywordMatch = line.ToUpperInvariant().Contains(keyWord.ToUpperInvariant());
+                        if (keywordMatch)
                         {
-                            lineNum = 0;
+                            relevantLineNumber = 0;
                         }
                     }
-                    if (readLine && lineNum++ < relevantLines)
+                    if (keywordMatch)
                     {
-                        writer.WriteLine(line);
-                    }
-                    if (readLine && lineNum >= relevantLines)
-                    {
-                        writer.WriteLine();
-                        readLine = false;
+                        if (relevantLineNumber++ < relevantLines)
+                        {
+                            writer.WriteLine(line);
+                        }
+                        else
+                        {
+                            writer.WriteLine();
+                            keywordMatch = false;
+                        }
                     }
                     ++linesRead;
                 }
@@ -95,11 +98,35 @@ namespace SmartLogParser
         private static int PromptForNumberOfRelevantLines()
         {
             int relevantLines;
-            Console.WriteLine("Please enter the number of relevant lines to read after keyword match:");
-            while (!int.TryParse(ReadLine(), out relevantLines))
+            bool retry;
+            do
             {
-                Console.WriteLine("That was a bad input, please have another try:");
-            }
+                retry = false;
+                Console.WriteLine("Please enter the number of relevant lines to read after keyword match:");
+                while (!int.TryParse(ReadLine(), out relevantLines) || relevantLines == 0)
+                {
+                    Console.WriteLine("That was a bad input, please have another try:");
+                }
+                if (relevantLines < 10)
+                {
+                    var retryTask = Task.Factory.StartNew<bool>(() =>
+                        {
+                            Console.WriteLine("Come on, do you really think {0} lines of data is of any relevance?", relevantLines);
+                            Console.Write("[Y/N]:");
+                            char c = Console.ReadKey().KeyChar;
+                            return c == 'y' || c == 'Y';
+                        });
+                    var task = Task.WhenAny(retryTask, Task.Delay(3000)).Result;
+                    if (task == retryTask)
+                    {
+                        retry = retryTask.Result;
+                        if (retry)
+                        {
+                            Console.WriteLine();
+                        }
+                    }
+                }
+            } while (retry);
             return relevantLines;
         }
 
@@ -150,7 +177,6 @@ namespace SmartLogParser
             string regex = "(\\[.*\\])|(\".*\")|('.*')|(\\(.*\\))";
             userName = Regex.Replace(userName, regex, "").Trim();
             Console.WriteLine("Hello dear {0}", userName);
-            //Console.WriteLine("Hello dear Smart Log User!");
         }
 
         private static string ReadLine()
